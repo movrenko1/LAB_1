@@ -1,0 +1,138 @@
+---
+title: "Lab1_Var4"
+author: "Мовренко Анна"
+date: '22 февраля 2020 г '
+output: html_document
+---
+
+Задача: Веб-скраппинг с пакетом “rvest”, собираем данные c сайта https://www.kinopoisk.ru/ , 
+самые лучшие (популярные) фильмы за 2017 год. В итоговой таблице 50 записей и 10 признаков.
+Для данных также написан справочник: https://github.com/movrenko1/LAB_1/blob/master/%D1%81%D0%BF%D1%80%D0%B0%D0%B2%D0%BE%D1%87%D0%BD%D0%B8%D0%BA_Lab_1.md
+
+```{r_1}
+#Кинопоиск, Самые популярные страницы фильмов 2017, топ-50
+
+# Загрузка пакетов
+library('rvest')               
+library('dplyr')               
+
+# создаём директорию для данных, если она ещё не существует:
+data.dir <- './data'
+if (!file.exists(data.dir)) dir.create(data.dir)
+
+# создаём файл с логом загрузок, если он ещё не существует:
+log.filename <- './data/download.log'
+if (!file.exists(log.filename)) file.create(log.filename)
+
+# URL страницы для скраппинга
+url <- 'https://www.kinopoisk.ru/top/lists/319/filtr/all/sort/order/perpage/50/'
+
+# читаем HTML страницы
+webpage <- read_html(url)
+
+# скраппим страницу по селектору и преобразуем в текст
+rank_data <- webpage %>% html_nodes('.rangImp') %>% html_text
+
+length(rank_data)      # размер вектора
+head(rank_data)        # первые шесть рангов
+# конвертируем ранги в числовые данные
+rank_data <- as.numeric(rank_data)
+head(rank_data)
+
+# названия фильмов 
+title_data <- webpage %>% html_nodes ('#itemList .news .all') %>% html_text
+length(title_data)
+head(title_data)
+
+#год создания фильма
+year_data <- webpage %>% html_nodes ('.news div span') %>% html_text
+length(year_data)
+head(year_data)
+
+#страна производства 
+country_data <- webpage %>% html_nodes ('div+ .gray_text') %>% html_text
+length(country_data)
+head(country_data)
+
+# длительности фильмов
+runtime_data <- webpage %>% html_nodes ('nobr') %>% html_text
+length(runtime_data)
+head(runtime_data)
+
+#режиссер фильма
+director_data <- webpage %>% html_nodes ('#itemList i') %>% html_text
+length(director_data)
+head(director_data)
+
+#жанр фильма
+genre_data <- webpage %>% html_nodes ('div+ .gray_text ') %>% html_text
+length(genre_data)
+head(genre_data)
+
+#в главной роли
+mainrole_data <- webpage %>% html_nodes ('.gray_text+ .gray_text .lined:nth-child(1)') %>% html_text
+length(mainrole_data)
+head(mainrole_data)
+
+# рейтинг фильмов на кинопоиске
+rating_data <- webpage %>% html_nodes ('.ratingBlock .all ') %>% html_text
+length(rating_data)
+head(rating_data)
+
+# рейтинг фильмов на IMDb
+rating_imdb_data <- webpage %>% html_nodes ('.ratingBlock+ div') %>% html_text
+length(rating_imdb_data)
+head(rating_imdb_data)
+
+# совмещаем данные в один фрейм
+DF_movies_short <- data.frame(Rank = rank_data, Title = title_data,
+                               Year = year_data, Country = country_data,
+                               Runtime = runtime_data, Director = director_data,
+                               Genre = genre_data, MainRole = mainrole_data,
+                               Kinopoisk = rating_data, IMDb = rating_imdb_data )
+# результат
+dim(DF_movies_short)
+str(DF_movies_short)
+
+```
+
+Прежде чем записать файл в формате csv, необходимо отредактировать данные, убрать лишние записи в столбцах.
+
+```{r_2}
+# проводим в данных очистку - удаляем ненужные данные
+library('data.table')
+
+DF.movies.short <- data.table(DF_movies_short)
+str(DF.movies.short) 
+
+#В столбце Year оставляем только числовое значение
+DF.movies.short$Year <- gsub('(.*)[(](.*)$', '\\2', DF.movies.short$Year)
+DF.movies.short$Year <- gsub('(.*)[)].*$', '\\1', DF.movies.short$Year)
+
+# Для каждого фильма оставляем только один жанр
+DF.movies.short$Genre <- gsub('(.*)[(](.*)$', '\\2', DF.movies.short$Genre)
+DF.movies.short$Genre <- gsub('(.*)[)].*$', '\\1', DF.movies.short$Genre)
+DF.movies.short$Genre <- gsub(',.*', '', DF.movies.short$Genre) 
+
+#Убираем лишнее в столбце Country 
+DF.movies.short$Country <- gsub('^\\n', '', DF.movies.short$Country) 
+DF.movies.short$Country <- gsub(',.*', '', DF.movies.short$Country) 
+DF.movies.short$Country <- gsub('\n.*', '', DF.movies.short$Country) 
+DF.movies.short$Country <- gsub('[.]+$', '', DF.movies.short$Country)
+
+#В столбце с продолжительностью фильма оставлеям только чиловое значение
+DF.movies.short$Runtime <- as.numeric(gsub(' мин.', '', DF.movies.short$Runtime)) 
+
+# В столбце с режиссерами фильмов оставляем только имя и фамилию
+DF.movies.short$Director <- sub('реж.', '', DF.movies.short$Director)
+
+# рейтинг фильмов в двух стоблцах округляем до одного знака после запятой
+DF.movies.short$IMDb <- round(as.numeric(gsub('[^0-9\\.]', '', DF.movies.short$IMDb)),1) 
+DF.movies.short$Kinopoisk <- round((as.numeric(gsub('[^0-9\\.]', '', DF.movies.short$Kinopoisk))), 1)
+
+DF.movies.short <- data.frame(DF.movies.short)
+str(DF.movies.short)
+# записываем в .csv
+write.csv(DF.movies.short, file = './data/DF_movies_short.csv', row.names = F)
+```
+
